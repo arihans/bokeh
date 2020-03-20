@@ -58,7 +58,9 @@ from .views.doc_handler import DocHandler
 from .views.metadata_handler import MetadataHandler
 from .views.root_handler import RootHandler
 from .views.static_handler import StaticHandler
+from .views.blob_handler import BlobHandler
 from .views.ws import WSHandler
+from ..resources import servables
 
 #-----------------------------------------------------------------------------
 # Globals and constants
@@ -79,6 +81,7 @@ __all__ = (
 
 toplevel_patterns = [
     (r'/?', RootHandler),
+    (r'/static/extensions/(.*)', BlobHandler, dict(blobs=servables)),
     (r'/static/(.*)', StaticHandler),
 ]
 

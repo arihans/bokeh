@@ -36,6 +36,7 @@ log = logging.getLogger(__name__)
 import json
 import re
 from os.path import basename, join, relpath
+from typing import Dict
 
 # Bokeh imports
 from . import __version__
@@ -53,6 +54,8 @@ from .util.version import is_full_release
 DEFAULT_SERVER_HOST = "localhost"
 DEFAULT_SERVER_PORT = 5006
 DEFAULT_SERVER_HTTP_URL = "http://%s:%d/" % (DEFAULT_SERVER_HOST, DEFAULT_SERVER_PORT)
+
+servables: Dict[str, str] = {}
 
 # __all__ defined at the bottom on the class module
 

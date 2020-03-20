@@ -19,7 +19,7 @@ log = logging.getLogger(__name__)
 #-----------------------------------------------------------------------------
 
 # External imports
-from tornado.web import StaticFileHandler
+from tornado.web import RequestHandler, HTTPError
 
 # Bokeh imports
 from bokeh.settings import settings
@@ -40,35 +40,22 @@ __all__ = (
 # Dev API
 #-----------------------------------------------------------------------------
 
-class StaticHandler(StaticFileHandler):
-    ''' Implements a custom Tornado static file handler for BokehJS
-    JavaScript and CSS resources.
+class BlobHandler(RequestHandler):
 
-    '''
+    # blobs: Protocol(get: (str) => str)
+
     def __init__(self, tornado_app, *args, **kw):
-        kw['path'] = settings.bokehjsdir()
-
-        # Note: tornado_app is stored as self.application
+        self.blobs = kw.pop("blobs")
         super().__init__(tornado_app, *args, **kw)
 
-    # We aren't using tornado's built-in static_path function
-    # because it relies on TornadoApplication's autoconfigured
-    # static handler instead of our custom one. We have a
-    # custom one because we think we might want to serve
-    # static files from multiple paths at once in the future.
-    @classmethod
-    def append_version(cls, path):
-        # This version is cached on the StaticFileHandler class,
-        # keyed by absolute filesystem path, and only invalidated
-        # on an explicit StaticFileHandler.reset(). The reset is
-        # automatic on every request if you set static_hash_cache=False
-        # in TornadoApplication kwargs. In dev mode rely on dev tools
-        # to manage caching. This improves the ability to debug code.
-        if settings.dev:
-            return path
+    def get(self, path):
+        artifact_path = self.blobs.get(path)
+        if artifact_path is not None:
+            with open(artifact_path, "rb") as fp:
+                self.set_header("Content-Type", "application/octet-stream")
+                self.write(fp.read())
         else:
-            version = StaticFileHandler.get_version(dict(static_path=settings.bokehjsdir()), path)
-            return f"{path}?v={version}"
+            raise HTTPError(404)
 
 #-----------------------------------------------------------------------------
 # Private API

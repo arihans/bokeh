@@ -19,14 +19,16 @@ log = logging.getLogger(__name__)
 #-----------------------------------------------------------------------------
 
 # Standard library imports
+import json
 from os.path import dirname, exists, join
+from typing import List, Optional, NamedTuple
 from warnings import warn
 
 # Bokeh imports
 from ..core.templates import CSS_RESOURCES, JS_RESOURCES
 from ..document.document import Document
 from ..model import Model
-from ..resources import BaseResources, Resources
+from ..resources import BaseResources, Resources, DEFAULT_SERVER_HTTP_URL, servables
 from ..settings import settings
 from ..util.compiler import bundle_models
 
@@ -176,7 +178,17 @@ def bundle_for_objs_and_resources(objs, resources):
         css_files.extend(css_resources.css_files)
         css_raw.extend(css_resources.css_raw)
 
-    js_raw.extend(_bundle_extensions(objs, resources))
+    if js_resources:
+        extensions = _bundle_extensions(objs, js_resources)
+        mode = resources.mode if resources is not None else "inline"
+        if mode == "inline":
+            js_raw.extend([ Resources._inline(bundle.artifact_path) for bundle in extensions ])
+        elif mode == "server":
+            js_files.extend([ bundle.server_url for bundle in extensions ])
+        elif mode == "cdn":
+            js_files.extend([ bundle.cdn_url for bundle in extensions ])
+        else:
+            js_files.extend([ bundle.artifact_path for bundle in extensions ])
 
     models = [ obj.__class__ for obj in _all_objs(objs) ] if objs else None
     ext = bundle_models(models)
@@ -209,9 +221,16 @@ def _query_extensions(objs, query):
 
     return False
 
-def _bundle_extensions(objs, resources):
+class ExtensionEmbed(NamedTuple):
+    artifact_path: str
+    server_url: str
+    cdn_url: Optional[str] = None
+
+def _bundle_extensions(objs, resources: Resources) -> List[ExtensionEmbed]:
     names = set()
-    extensions = []
+    bundles = []
+
+    extensions = [".min.js", ".js"] if resources.minified else [".js"]
 
     for obj in _all_objs(objs) if objs is not None else Model.model_class_reverse_map.values():
         if hasattr(obj, "__implementation__"):
@@ -223,13 +242,35 @@ def _bundle_extensions(objs, resources):
             continue
         names.add(name)
         module = __import__(name)
-        ext = ".min.js" if resources is None or resources.minified else ".js"
-        artifact = join(dirname(module.__file__), "dist", name + ext)
-        if exists(artifact):
-            bundle = BaseResources._inline(artifact)
-            extensions.append(bundle)
+        base = dirname(module.__file__)
 
-    return extensions
+        server_prefix = f"static/extensions"
+        package_path = join(base, "package.json")
+        if exists(package_path):
+            with open(package_path) as io:
+                pkg = json.load(io)
+                pkg_name = pkg["name"]
+                version = pkg.get("version", "latest")
+                main = pkg.get("module", pkg["main"])
+                artifact_path = join(base, main)
+                server_path = f"{pkg_name}@^{version}/{main}"
+                cdn_url = f"https://unpkg.com/{pkg_name}@^{version}/{main}"
+        else:
+            for ext in extensions:
+                artifact_path = join(base, "dist", name + ext)
+                server_path = f"{name}@latest/dist/{name + ext}"
+                if exists(artifact):
+                    break
+            else:
+                raise ValueError(f"can't resolve artifact path for '{name}' extension")
+            cdn_url = None
+
+        servables[server_path] = artifact_path
+        server_url = f"{DEFAULT_SERVER_HTTP_URL}{server_prefix}/{server_path}"
+        embed = ExtensionEmbed(artifact_path, server_url, cdn_url)
+        bundles.append(embed)
+
+    return bundles
 
 def _all_objs(objs):
     all_objs = set()
